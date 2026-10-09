@@ -2,21 +2,26 @@
 FROM rust:1.99 AS build
 WORKDIR /app
 
-# 1. Спочатку — тільки маніфести залежностей (рідко змінюються)
+# 1. Додаємо musl-таргет і musl-tools (компілятор C для musl)
+RUN rustup target add x86_64-unknown-linux-musl \
+    && apt-get update \
+    && apt-get install -y musl-tools
+
+# 2. Спочатку — тільки маніфести залежностей
 COPY Cargo.toml Cargo.lock ./
 
-# 2. Компіляція залежностей окремим шаром (заглушка main.rs)
+# 3. Компіляція залежностей (musl) з заглушкою main.rs
 RUN mkdir src && echo "fn main() {}" > src/main.rs \
-    && cargo build --release \
+    && cargo build --release --target x86_64-unknown-linux-musl \
     && rm -rf src
 
-# 3. Тільки тепер — решта коду (часто змінюється)
+# 4. Тільки тепер — решта коду
 COPY src ./src
 
-# 4. Компіляція основного бінарника
-RUN cargo build --release
+# 5. Компіляція бінарника (musl) — статично
+RUN cargo build --release --target x86_64-unknown-linux-musl
 
-# Фінальний етап — мінімальний
-FROM debian:12-slim
-COPY --from=build /app/target/release/sid-proj /usr/local/bin/sid-proj
-CMD ["sid-proj"]
+# Фінальний етап — scratch (порожній, без ОС)
+FROM scratch
+COPY --from=build /app/target/x86_64-unknown-linux-musl/release/sid-proj /sid-proj
+ENTRYPOINT ["/sid-proj"]
